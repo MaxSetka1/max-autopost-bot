@@ -1,0 +1,6 @@
+channels:
+  - name: ChitaiDelai
+    alias: "@chitaidelai"
+    token_env: BOT_TOKEN_CHITAI
+    timezone: "Europe/Moscow"
+    enabled: true
