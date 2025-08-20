@@ -19,3 +19,23 @@ cp .env.example .env
 # отредактируй .env и запусти
 python -m app.main
 
+
+## 🚀 Деплой в облако
+
+### Heroku
+```bash
+# Установи Heroku CLI
+brew tap heroku/brew && brew install heroku
+
+# Логин
+heroku login
+
+# Создай приложение
+heroku create max-autopost-bot
+
+# Задеплой код из ветки main
+git push heroku main
+
+# Добавь переменные окружения
+heroku config:set BOT_TOKEN_CHITAI=your_token_here
+
