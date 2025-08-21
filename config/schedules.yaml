@@ -5,10 +5,10 @@ slots:
     - time: "09:00"
       format: "quote"
 
-    - time: "13:30"
+    - time: "18:09"
       format: "summary5"
 
-    - time: "18:09"
+    - time: "17:02"
       format: "practice"
 
     - time: "20:04"
