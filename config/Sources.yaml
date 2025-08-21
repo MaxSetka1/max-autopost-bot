@@ -1,8 +1,13 @@
-sources:
+channels:
   ChitaiDelai:
     rss:
-      # Примеры. Можешь менять/добавлять
-      - https://www.rbc.ru/rss/main.rss
-      - https://vc.ru/rss/all
-      - https://habr.com/ru/rss/all/all/?fl=ru
+      - https://habr.com/ru/rss/flows/develop/all/?fl=ru
+      - https://vc.ru/rss
+      - https://www.the-village.ru/rss
+      - https://journal.tinkoff.ru/feed/
+
+defaults:
+  rss:
+    - https://lenta.ru/rss
+    - https://meduza.io/rss/all
 
