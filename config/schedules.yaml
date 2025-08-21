@@ -2,6 +2,6 @@ default_tz: "Europe/Moscow"
 slots:
   ChitaiDelai:
     - { time: "09:00", format: "quote" }
-    - { time: "13:20", format: "summary5" }
+    - { time: "15:30", format: "summary5" }
     - { time: "17:00", format: "practice" }
     - { time: "20:00", format: "card" }
