@@ -1,10 +1,10 @@
 channels:
-  - id: "tg:chitaidelai"
-    provider: "telegram"
-    chat_id: "6847953293"
+  - name: ChitaiDelai           # ← ЭТО НУЖНО ДЛЯ ТЕКУЩЕГО main.py
+    alias: "@chitaidelai"
     token_env: BOT_TOKEN_CHITAI
     timezone: "Europe/Moscow"
     enabled: true
-    schedule:
-      - cron: "*/2 * * * *"   # каждые 2 минуты для теста
-        pipeline: ["generate", "publish"]
+
+    # эти поля на будущее (не мешают текущему коду)
+    provider: "telegram"
+    chat_id: "6847953293"
