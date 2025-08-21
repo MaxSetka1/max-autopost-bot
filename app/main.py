@@ -35,15 +35,23 @@ def job_send(alias: str, token_env: str, text: str, api_base: str | None = None)
 
 def _to_utc_hhmm(local_hhmm: str, tz_name: str) -> str:
     """
-    Преобразует 'HH:MM' в указанной локальной TZ в строку 'HH:MM' по UTC.
-    schedule.every().day.at() ожидает локальное время процесса (UTC на Heroku).
+    Принимает 'HH:MM' ИЛИ 'HH:MM:SS' в локальной TZ канала
+    и возвращает строку 'HH:MM:SS' в UTC (для schedule.every().day.at()).
     """
-    h, m = map(int, local_hhmm.split(":"))
-    # Берём "сегодня" по UTC, чтобы корректно учесть смещение и переходы
+    parts = list(map(int, local_hhmm.split(":")))
+    if len(parts) == 2:
+        h, m = parts
+        s = 0
+    elif len(parts) == 3:
+        h, m, s = parts
+    else:
+        raise ValueError(f"Bad time format: {local_hhmm}")
+
+    # Берём «сегодня» по UTC, чтобы корректно учесть смещения/DST
     today_utc: date = datetime.now(ZoneInfo("UTC")).date()
-    local_dt = datetime.combine(today_utc, dtime(hour=h, minute=m), tzinfo=ZoneInfo(tz_name))
+    local_dt = datetime.combine(today_utc, dtime(hour=h, minute=m, second=s), tzinfo=ZoneInfo(tz_name))
     utc_dt = local_dt.astimezone(ZoneInfo("UTC"))
-    return utc_dt.strftime("%H:%M")
+    return utc_dt.strftime("%H:%M:%S")
 
 
 def schedule_channel(ch: dict, slots: list, default_tz: str):
@@ -78,7 +86,7 @@ def schedule_channel(ch: dict, slots: list, default_tz: str):
 
             return _run
 
-        # Планируем по UTC (локальное время процесса на Heroku — это как раз UTC)
+        # Планируем по UTC (локальное время процесса на Heroku — это UTC)
         schedule.every().day.at(t_utc).do(make_job())
 
         sched_msg = f"[SCHED] {alias} {t_local} local / {t_utc} UTC ({fmt}) [{tz}]"
