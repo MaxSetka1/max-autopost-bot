@@ -1,1 +1,8 @@
+sources:
+  ChitaiDelai:
+    rss:
+      # Примеры. Можешь менять/добавлять
+      - https://www.rbc.ru/rss/main.rss
+      - https://vc.ru/rss/all
+      - https://habr.com/ru/rss/all/all/?fl=ru
 
