@@ -66,13 +66,9 @@ def schedule_channel(ch: dict, slots: list, default_tz: str):
         # Конвертируем локальное время канала -> UTC для планировщика
         t_utc = _to_utc_hhmm(t_local, tz)
 
-        sample = {
-            "quote": "«Вы — результат того, что делаете каждый день». Читай.Делай!",
-            "summary5": "5 идей из книги дня...",
-            "practice": "Приём недели: правило 2 минут.",
-            "card": "Карточка: одна мысль — одно действие. #ЧитайДелай",
-        }.get(fmt, "Пост по расписанию.")
-
+from app.content import make_content
+...
+sample = make_content(fmt)
         def make_job(a=alias, te=token_env, text=sample, api=api_base, tz=tz):
             def _run():
                 now = local_now(tz).strftime("%Y-%m-%d %H:%M:%S")
