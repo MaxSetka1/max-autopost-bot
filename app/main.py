@@ -1,10 +1,14 @@
-import os, time, schedule, yaml
+import os
+import time
+import schedule
+import yaml
 from pathlib import Path
 from datetime import datetime, date, time as dtime
 from zoneinfo import ZoneInfo
 
 from app.max_api import send_text
-from app.db import init_db, add_log  # <-- БД: создаём таблицы и пишем логи
+from app.db import init_db, add_log
+from app.content import make_content  # <-- используем генератор чернового текста
 
 ROOT = Path(__file__).resolve().parents[1]
 CFG_CH = ROOT / "config" / "channels.yaml"
@@ -22,7 +26,7 @@ def local_now(tz: str):
 
 def job_send(alias: str, token_env: str, text: str, api_base: str | None = None):
     token = os.getenv(token_env)
-    dry = not bool(token)
+    dry = not bool(token)  # если токена нет — DRY‑режим
     ok = send_text(token=token, alias=alias, text=text, api_base=api_base, dry_run=dry)
     tag = "DRY" if dry else "SENT"
     msg = f"[{tag}] {alias} -> {ok}"
@@ -47,7 +51,6 @@ def _to_utc_hhmm(local_hhmm: str, tz_name: str) -> str:
     else:
         raise ValueError(f"Bad time format: {local_hhmm}")
 
-    # Берём «сегодня» по UTC, чтобы корректно учесть смещения/DST
     today_utc: date = datetime.now(ZoneInfo("UTC")).date()
     local_dt = datetime.combine(today_utc, dtime(hour=h, minute=m, second=s), tzinfo=ZoneInfo(tz_name))
     utc_dt = local_dt.astimezone(ZoneInfo("UTC"))
@@ -63,12 +66,14 @@ def schedule_channel(ch: dict, slots: list, default_tz: str):
     for s in slots:
         t_local = s["time"]
         fmt = s["format"]
-        # Конвертируем локальное время канала -> UTC для планировщика
+
+        # 1) Конвертируем локальное время канала -> UTC для планировщика
         t_utc = _to_utc_hhmm(t_local, tz)
 
-from app.content import make_content
-...
-sample = make_content(fmt)
+        # 2) Генерим черновой контент (пока простая заглушка по типу поста)
+        sample = make_content(fmt)
+
+        # 3) Фабрика джобы
         def make_job(a=alias, te=token_env, text=sample, api=api_base, tz=tz):
             def _run():
                 now = local_now(tz).strftime("%Y-%m-%d %H:%M:%S")
@@ -82,7 +87,7 @@ sample = make_content(fmt)
 
             return _run
 
-        # Планируем по UTC (локальное время процесса на Heroku — это UTC)
+        # 4) Планируем по UTC (локальное время процесса на Heroku — это UTC)
         schedule.every().day.at(t_utc).do(make_job())
 
         sched_msg = f"[SCHED] {alias} {t_local} local / {t_utc} UTC ({fmt}) [{tz}]"
@@ -94,7 +99,7 @@ sample = make_content(fmt)
 
 
 def main():
-    # 1) Гарантируем, что таблицы БД созданы (posts, logs)
+    # 1) Создаём таблицы (если их ещё нет)
     try:
         init_db()
     except Exception as e:
