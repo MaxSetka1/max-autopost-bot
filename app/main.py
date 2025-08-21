@@ -1,6 +1,6 @@
 import os, time, schedule, yaml
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, date, time as dtime
 from zoneinfo import ZoneInfo
 
 from app.max_api import send_text
@@ -33,6 +33,19 @@ def job_send(alias: str, token_env: str, text: str, api_base: str | None = None)
         print(f"[LOG ERR] {e}")
 
 
+def _to_utc_hhmm(local_hhmm: str, tz_name: str) -> str:
+    """
+    Преобразует 'HH:MM' в указанной локальной TZ в строку 'HH:MM' по UTC.
+    schedule.every().day.at() ожидает локальное время процесса (UTC на Heroku).
+    """
+    h, m = map(int, local_hhmm.split(":"))
+    # Берём "сегодня" по UTC, чтобы корректно учесть смещение и переходы
+    today_utc: date = datetime.now(ZoneInfo("UTC")).date()
+    local_dt = datetime.combine(today_utc, dtime(hour=h, minute=m), tzinfo=ZoneInfo(tz_name))
+    utc_dt = local_dt.astimezone(ZoneInfo("UTC"))
+    return utc_dt.strftime("%H:%M")
+
+
 def schedule_channel(ch: dict, slots: list, default_tz: str):
     alias = ch["alias"]
     token_env = ch["token_env"]
@@ -40,8 +53,11 @@ def schedule_channel(ch: dict, slots: list, default_tz: str):
     api_base = os.getenv("BOT_API_BASE")
 
     for s in slots:
-        t = s["time"]
+        t_local = s["time"]
         fmt = s["format"]
+        # Конвертируем локальное время канала -> UTC для планировщика
+        t_utc = _to_utc_hhmm(t_local, tz)
+
         sample = {
             "quote": "«Вы — результат того, что делаете каждый день». Читай.Делай!",
             "summary5": "5 идей из книги дня...",
@@ -62,8 +78,10 @@ def schedule_channel(ch: dict, slots: list, default_tz: str):
 
             return _run
 
-        schedule.every().day.at(t).do(make_job())
-        sched_msg = f"[SCHED] {alias} {t} ({fmt}) [{tz}]"
+        # Планируем по UTC (локальное время процесса на Heroku — это как раз UTC)
+        schedule.every().day.at(t_utc).do(make_job())
+
+        sched_msg = f"[SCHED] {alias} {t_local} local / {t_utc} UTC ({fmt}) [{tz}]"
         print(sched_msg)
         try:
             add_log(sched_msg)
