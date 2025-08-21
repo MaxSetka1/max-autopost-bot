@@ -3,3 +3,7 @@ schedule
 pyyaml
 python-dotenv
 psycopg2-binary==2.9.9
+feedparser
+beautifulsoup4
+html2text
+python-dateutil
