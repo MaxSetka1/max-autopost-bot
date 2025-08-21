@@ -5,11 +5,11 @@ slots:
     - time: "09:00"
       format: "quote"
 
-    - time: "16:30"
+    - time: "13:30"
       format: "summary5"
 
-    - time: "17:46"
+    - time: "17:02"
       format: "practice"
 
-    - time: "20:00"
+    - time: "20:04"
       format: "card"
