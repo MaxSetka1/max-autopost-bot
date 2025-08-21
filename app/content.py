@@ -2,7 +2,7 @@
 from __future__ import annotations
 import yaml
 from pathlib import Path
-from app.sources import fetch_rss
+from app.sources.rss import fetch_rss
 from app.generator import generate_by_format
 
 ROOT = Path(__file__).resolve().parents[1]
