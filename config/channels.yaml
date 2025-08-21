@@ -1,10 +1,10 @@
 channels:
-  - name: ChitaiDelai           # ← ЭТО НУЖНО ДЛЯ ТЕКУЩЕГО main.py
+  - name: "ChitaiDelai"
     alias: "@chitaidelai"
-    token_env: BOT_TOKEN_CHITAI
+    token_env: "BOT_TOKEN_CHITAI"
     timezone: "Europe/Moscow"
     enabled: true
 
-    # эти поля на будущее (не мешают текущему коду)
+    # пока не используются
     provider: "telegram"
     chat_id: "6847953293"
