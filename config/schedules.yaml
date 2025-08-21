@@ -1,7 +1,15 @@
-default_tz: "Europe/Moscow"
+default_tz: Europe/Moscow
+
 slots:
   ChitaiDelai:
-    - { time: "09:00", format: "quote" }
-    - { time: "16:48", format: "summary5" }
-    - { time: "17:00", format: "practice" }
-    - { time: "20:00", format: "card" }
+    - time: "09:00"
+      format: "quote"
+
+    - time: "16:30"
+      format: "summary5"
+
+    - time: "17:00"
+      format: "practice"
+
+    - time: "20:00"
+      format: "card"
