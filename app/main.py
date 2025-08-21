@@ -26,7 +26,7 @@ def local_now(tz: str):
 
 def job_send(alias: str, token_env: str, text: str, api_base: str | None = None):
     token = os.getenv(token_env)
-    dry = not bool(token)  # если токена нет — DRY‑режим
+    dry = not bool(token)  # если токена нет — DRY-режим
     ok = send_text(token=token, alias=alias, text=text, api_base=api_base, dry_run=dry)
     tag = "DRY" if dry else "SENT"
     msg = f"[{tag}] {alias} -> {ok}"
