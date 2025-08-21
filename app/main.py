@@ -71,7 +71,9 @@ def schedule_channel(ch: dict, slots: list, default_tz: str):
         t_utc = _to_utc_hhmm(t_local, tz)
 
         # 2) Генерим черновой контент (пока простая заглушка по типу поста)
-        sample = make_content(fmt)
+        # передаем имя канала (или alias) вторым аргументом
+        sample = make_content(fmt, channel_name=ch.get("name") or alias)
+
 
         # 3) Фабрика джобы
         def make_job(a=alias, te=token_env, text=sample, api=api_base, tz=tz):
