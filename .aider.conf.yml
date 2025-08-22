@@ -1,0 +1,19 @@
+model: openai/gpt-4o-mini
+editor-model: openai/gpt-4o-mini
+auto-commits: true
+commit-prompt: |
+  Кратко и по делу. Формат:
+  - scope: <подсистема>
+  - what: <что сделано>
+  - why: <зачем/эффект>
+
+# чтобы Aider видел важные файлы по умолчанию
+read:
+  - README.md
+  - Procfile
+  - requirements.txt
+  - app/**/*.py
+  - config/**/*.yaml
+
+# стиль кода
+lint-cmd: "ruff check --fix . && black ."
