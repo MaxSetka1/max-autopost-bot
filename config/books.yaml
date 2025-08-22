@@ -1,0 +1,6 @@
+books:
+  - id: "atomic_habits"
+    title: "Атомные привычки"
+    author: "Джеймс Клир"
+    status: "in_work"
+    gdrive_file_id: "1j76jhaUNFl8gcDkSSwOGv-47mzwnwyut"   # скопируй из своей ссылки

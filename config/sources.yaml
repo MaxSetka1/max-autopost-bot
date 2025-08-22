@@ -1,12 +1,4 @@
 channels:
   ChitaiDelai:
-    rss:
-      - https://habr.com/ru/rss/flows/develop/all/?fl=ru
-      - https://vc.ru/rss
-      - https://www.the-village.ru/rss
-      - https://journal.tinkoff.ru/feed/
-
-defaults:
-  rss:
-    - https://lenta.ru/rss
-    - https://meduza.io/rss/all
+    books:
+      book_id: "atomic_habits"
