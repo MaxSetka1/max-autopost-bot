@@ -1,5 +1,5 @@
-model: openai/gpt-4o-mini
-editor-model: openai/gpt-4o-mini
+model: openai/gpt-5
+editor-model: openai/gpt-5
 auto-commits: true
 commit-prompt: |
   Кратко и по делу. Формат:
