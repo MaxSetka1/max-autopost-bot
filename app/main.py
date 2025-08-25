@@ -72,7 +72,7 @@ def schedule_channel(ch: dict, slots: list, default_tz: str):
 
         # 2) Генерим черновой контент (пока простая заглушка по типу поста)
         # передаем имя канала (или alias) вторым аргументом
-        sample = make_content(fmt, channel_name=ch.get("name") or alias)
+        sample = make_content(ch.get("name") or alias, fmt)
 
 
         # 3) Фабрика джобы
