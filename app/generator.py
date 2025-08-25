@@ -186,11 +186,17 @@ def _gen_with_prompt(fmt: str, summary: Dict[str, Any], *, book_id: str, channel
         "quote":    "цитата",
         "reflect":  "вопрос дня",
     }
+
     emoji = map_emoji.get(fmt, "📝")
     label = map_label.get(fmt, fmt)
     tags  = map_tag.get(fmt, "#сводка")
 
-    header = f"{emoji} {title} — {label.capitalize()}"
+    # --- ВАЖНОЕ ИЗМЕНЕНИЕ ДЛЯ АНОНСА ---
+    if fmt == "announce":
+        header = f"{emoji} Книга дня — {title}"
+    else:
+        header = f"{emoji} {title} — {label.capitalize()}"
+
     final = f"{header}\n\n{body}\n\n{tags}"
     return final.strip()
 
