@@ -9,7 +9,7 @@ channels:
       - format: "insight"
         time: "11:00"
       - format: "practice"
-        time: "13:30"
+        time: "12:45"
       - format: "case"
         time: "16:00"
       - format: "quote"
