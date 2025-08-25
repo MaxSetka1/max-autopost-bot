@@ -2,23 +2,14 @@ import os
 import psycopg2
 
 def _get_conn():
-    """
-    Возвращает подключение к БД Heroku Postgres.
-    Heroku автоматически добавляет переменную окружения DATABASE_URL.
-    """
     dsn = os.environ["DATABASE_URL"]
     return psycopg2.connect(dsn, sslmode="require")
 
 def get_conn():
-    """Публичная функция для других модулей."""
     return _get_conn()
 
 def init_db():
-    """
-    Создаём таблицы, если их ещё нет.
-    """
     with _get_conn() as conn, conn.cursor() as cur:
-        # логи
         cur.execute("""
         CREATE TABLE IF NOT EXISTS logs (
             id SERIAL PRIMARY KEY,
@@ -26,8 +17,6 @@ def init_db():
             message TEXT
         );
         """)
-
-        # фрагменты книг
         cur.execute("""
         CREATE TABLE IF NOT EXISTS chunks (
             id SERIAL PRIMARY KEY,
@@ -45,7 +34,6 @@ def init_db():
         cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_chunks_book_chunk ON chunks(book_id, chunk_id);")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_chunks_hash ON chunks(hash);")
 
-        # черновики постов
         cur.execute("""
         CREATE TABLE IF NOT EXISTS drafts (
             id SERIAL PRIMARY KEY,
@@ -53,15 +41,25 @@ def init_db():
             format TEXT NOT NULL,
             book_id TEXT,
             text TEXT NOT NULL,
-            status TEXT DEFAULT 'new', -- new/approved/rejected/sent
+            status TEXT DEFAULT 'new',
             created_at TIMESTAMPTZ DEFAULT NOW()
         );
         """)
+
+        -- -- новые поля для планирования и модерации -- --
+        cur.execute("ALTER TABLE drafts ADD COLUMN IF NOT EXISTS publish_date DATE;")
+        cur.execute("ALTER TABLE drafts ADD COLUMN IF NOT EXISTS publish_time TIME;")
+        cur.execute("ALTER TABLE drafts ADD COLUMN IF NOT EXISTS edited_text TEXT;")
+        cur.execute("ALTER TABLE drafts ADD COLUMN IF NOT EXISTS approved_by TEXT;")
+        cur.execute("ALTER TABLE drafts ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ;")
+
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_drafts_pub ON drafts(channel, publish_date, publish_time);")
+        cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_drafts_unique ON drafts(channel, publish_date, format);")
+
         conn.commit()
     print("DB: tables ensured")
 
 def add_log(message: str):
-    """Записать строку в лог."""
     with _get_conn() as conn, conn.cursor() as cur:
         cur.execute("INSERT INTO logs(message) VALUES (%s)", (message,))
         conn.commit()
