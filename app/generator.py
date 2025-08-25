@@ -5,7 +5,7 @@ import os
 from typing import Dict, List, Any
 
 from app.retriever import search_book
-from app.gpt import client  # используем того же клиента, что и для эмбеддингов
+from app.gpt import _client  # берём фабрику клиента
 
 # Модель для конспекта и постов (можно переопределить в Config Vars: OPENAI_MODEL_SUMMARY)
 MODEL_SUMMARY = os.getenv("OPENAI_MODEL_SUMMARY", "gpt-4o-mini")
