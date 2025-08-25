@@ -16,23 +16,22 @@ _SUMMARY_CACHE: Dict[str, Dict[str, Any]] = {}
 # ---------- Утилиты ----------
 
 def _clean_bold(s: str) -> str:
-    # убрать **жирное**
     return s.replace("**", "").strip()
 
 def _squash_blanks(s: str) -> str:
-    # сжать лишние пустые строки
     return re.sub(r"\n{3,}", "\n\n", s).strip()
 
 def _normalize(s: str) -> str:
     return _squash_blanks(_clean_bold(s))
 
-def _book_title(s: Dict[str, Any], book_id: str, channel_name: str) -> str:
+def _book_title_author(s: Dict[str, Any], book_id: str, channel_name: str) -> str:
+    """Вернём 'Название — Автор' (если есть автор)."""
     about = s.get("about") or {}
-    t = (about.get("title") or "").strip()
-    if t:
-        return t
-    # fallback — из id или имени канала
-    return book_id.replace("_", " ").strip().title() if book_id else channel_name
+    title = (about.get("title") or "").strip()
+    author = (about.get("author") or "").strip()
+    if not title:
+        title = book_id.replace("_", " ").strip().title() if book_id else channel_name
+    return f"{title} — {author}" if author else title
 
 
 # ---------- Сбор контекста из книги ----------
@@ -64,9 +63,7 @@ def _collect_context(book_id: str) -> str:
 # ---------- Построение конспекта ----------
 
 def _ask_json_summary(context: str, book_id: str, channel_name: str) -> Dict[str, Any]:
-    system = (
-        "Ты редактор делового Telegram-канала. Сделай структурированный, прикладной конспект книги. Русский язык."
-    )
+    system = "Ты редактор делового Telegram-канала. Сделай структурированный, прикладной конспект книги. Русский язык."
     user = f"""
 На входе фрагменты книги. Сделай JSON-конспект:
 
@@ -116,7 +113,7 @@ def _ensure_summary(book_id: str, channel_name: str) -> Dict[str, Any]:
 
 def _gen_with_prompt(fmt: str, summary: Dict[str, Any], *, book_id: str, channel_name: str) -> str:
     base = json.dumps(summary, ensure_ascii=False, indent=2)
-    title = _book_title(summary, book_id, channel_name)
+    title_with_author = _book_title_author(summary, book_id, channel_name)
 
     prompts = {
         "announce": (
@@ -133,7 +130,7 @@ def _gen_with_prompt(fmt: str, summary: Dict[str, Any], *, book_id: str, channel
         ),
         "practice": (
             "Выбери 1 практику и опиши пошагово: 3–6 конкретных шагов.\n"
-            "Обязательно добавь бытовой пример применения (например: ...).\n"
+            "Обязательно добавь бытовой пример применения.\n"
             "Стиль: простой язык, дружелюбно, 1–2 эмодзи. Без жирного. Заголовок мы добавим сами."
         ),
         "case": (
@@ -141,7 +138,7 @@ def _gen_with_prompt(fmt: str, summary: Dict[str, Any], *, book_id: str, channel
             "Добавь вывод: чему это учит. Можно 1 эмодзи. Без жирного. Заголовок мы добавим сами."
         ),
         "quote": (
-            "Выбери 1 сильную цитату из книги (если есть). Приведи дословно в кавычках и добавь 1–2 предложения пояснения: как применить.\n"
+            "Выбери 1 сильную цитату из книги (если есть). Приведи дословно в кавычках и добавь пояснение: как применить.\n"
             "Без жирного, 0–1 эмодзи. Заголовок мы добавим сами."
         ),
         "reflect": (
@@ -161,7 +158,7 @@ def _gen_with_prompt(fmt: str, summary: Dict[str, Any], *, book_id: str, channel
     )
     body = _normalize(resp.choices[0].message.content or "")
 
-    # Заголовки и хэштеги по формату
+    # Заголовки и хэштеги
     map_emoji = {
         "announce": "📚",
         "insight":  "💡",
@@ -191,11 +188,10 @@ def _gen_with_prompt(fmt: str, summary: Dict[str, Any], *, book_id: str, channel
     label = map_label.get(fmt, fmt)
     tags  = map_tag.get(fmt, "#сводка")
 
-    # --- ВАЖНОЕ ИЗМЕНЕНИЕ ДЛЯ АНОНСА ---
     if fmt == "announce":
-        header = f"{emoji} Книга дня — {title}"
+        header = f"{emoji} Книга дня — {title_with_author}"
     else:
-        header = f"{emoji} {title} — {label.capitalize()}"
+        header = f"{emoji} {title_with_author} — {label.capitalize()}"
 
     final = f"{header}\n\n{body}\n\n{tags}"
     return final.strip()
@@ -209,7 +205,6 @@ def generate_from_book(channel_name: str, book_id: str, fmt: str) -> str:
 
 
 def generate_by_format(fmt: str, items: List[dict]) -> str:
-    # fallback (старый режим)
     f = (fmt or "").lower()
     if f == "quote":
         return "«Вы — результат того, что делаете каждый день». #цитата"
