@@ -103,7 +103,7 @@ def _ask_json_summary(context: str, book_id: str, channel_name: str) -> Dict[str
 ---
 """
 
-+ resp = _client().chat.completions.create(
+resp = _client().chat.completions.create(
      model=MODEL_SUMMARY,
      messages=[
          {"role": "system", "content": system},
