@@ -46,7 +46,7 @@ def init_db():
         );
         """)
 
-        -- -- новые поля для планирования и модерации -- --
+        # новые поля для планирования и модерации
         cur.execute("ALTER TABLE drafts ADD COLUMN IF NOT EXISTS publish_date DATE;")
         cur.execute("ALTER TABLE drafts ADD COLUMN IF NOT EXISTS publish_time TIME;")
         cur.execute("ALTER TABLE drafts ADD COLUMN IF NOT EXISTS edited_text TEXT;")
@@ -58,6 +58,7 @@ def init_db():
 
         conn.commit()
     print("DB: tables ensured")
+
 
 def add_log(message: str):
     with _get_conn() as conn, conn.cursor() as cur:
