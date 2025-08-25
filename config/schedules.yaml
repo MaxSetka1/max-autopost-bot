@@ -5,7 +5,7 @@ channels:
     name: "@chitaidelai"
     slots:
       - format: "announce"
-        time: "12:55"   # тест-прокол прямо сейчас
+        time: "13:03"   # тест-прокол прямо сейчас
       - format: "insight"
         time: "14:00"
       - format: "practice"
