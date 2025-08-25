@@ -5,7 +5,7 @@ slots:
     - time: "09:00"
       format: "quote"
 
-    - time: "19:47"
+    - time: "11:40"
       format: "summary5"
 
     - time: "17:02"
