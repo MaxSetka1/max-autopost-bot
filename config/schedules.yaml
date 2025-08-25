@@ -1,15 +1,18 @@
-default_tz: Europe/Moscow
+timezone: Europe/Moscow
 
-slots:
-  ChitaiDelai:
-    - time: "09:00"
-      format: "quote"
-
-    - time: "12:10"
-      format: "summary5"
-
-    - time: "17:02"
-      format: "practice"
-
-    - time: "20:04"
-      format: "card"
+channels:
+  - alias: chitaidelai
+    name: "@chitaidelai"
+    slots:
+      - format: "announce"
+        time: "08:30"
+      - format: "insight"
+        time: "11:00"
+      - format: "practice"
+        time: "13:30"
+      - format: "case"
+        time: "16:00"
+      - format: "quote"
+        time: "18:30"
+      - format: "reflect"
+        time: "21:00"
