@@ -1,11 +1,11 @@
 timezone: Europe/Moscow
 
 channels:
-  - alias: chitaidelai
-    name: "@chitaidelai"
+  - name: "ChitaiDelai"      # совпадает с name в channels.yaml
+    alias: "@chitaidelai"    # совпадает с alias в channels.yaml
     slots:
       - format: "announce"
-        time: "13:03"   # тест-прокол прямо сейчас
+        time: "13:15"
       - format: "insight"
         time: "14:00"
       - format: "practice"
