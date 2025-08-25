@@ -103,15 +103,15 @@ def _ask_json_summary(context: str, book_id: str, channel_name: str) -> Dict[str
 ---
 """
 
-    resp = client.chat.completions.create(
-        model=MODEL_SUMMARY,
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user",    "content": user},
-        ],
-        temperature=0.2,
-        response_format={"type": "json_object"},
-    )
++ resp = _client().chat.completions.create(
+     model=MODEL_SUMMARY,
+     messages=[
+         {"role": "system", "content": system},
+         {"role": "user",    "content": user},
+     ],
+     temperature=0.2,
+     response_format={"type": "json_object"},
+ )
     content = resp.choices[0].message.content
     import json
     try:
