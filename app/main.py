@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 
 from app.max_api import send_text
 from app.db import init_db, add_log
-from app.content import make_content  # <-- используем генератор чернового текста
+from app.content import make_content  # <-- генератор чернового текста
 
 ROOT = Path(__file__).resolve().parents[1]
 CFG_CH = ROOT / "config" / "channels.yaml"
@@ -67,13 +67,11 @@ def schedule_channel(ch: dict, slots: list, default_tz: str):
         t_local = s["time"]
         fmt = s["format"]
 
-        # 1) Конвертируем локальное время канала -> UTC для планировщика
+        # 1) Конвертируем локальное время канала -> UTC
         t_utc = _to_utc_hhmm(t_local, tz)
 
-        # 2) Генерим черновой контент (пока простая заглушка по типу поста)
-        # передаем имя канала (или alias) вторым аргументом
+        # 2) Генерация чернового контента
         sample = make_content(ch.get("name") or alias, fmt)
-
 
         # 3) Фабрика джобы
         def make_job(a=alias, te=token_env, text=sample, api=api_base, tz=tz):
@@ -86,10 +84,9 @@ def schedule_channel(ch: dict, slots: list, default_tz: str):
                 except Exception as e:
                     print(f"[LOG ERR] {e}")
                 job_send(alias=a, token_env=te, text=text, api_base=api)
-
             return _run
 
-        # 4) Планируем по UTC (локальное время процесса на Heroku — это UTC)
+        # 4) Планируем по UTC
         schedule.every().day.at(t_utc).do(make_job())
 
         sched_msg = f"[SCHED] {alias} {t_local} local / {t_utc} UTC ({fmt}) [{tz}]"
@@ -100,8 +97,32 @@ def schedule_channel(ch: dict, slots: list, default_tz: str):
             print(f"[LOG ERR] {e}")
 
 
+def _load_slots_for_channel(sc_cfg: dict, alias: str, name: str):
+    """
+    Универсальный загрузчик слотов:
+    - старый формат {slots: {...}}
+    - новый формат {channels: [ {alias,name,slots:[]}, ...]}
+    """
+    tz = sc_cfg.get("timezone", "UTC")
+    slots = []
+
+    # Старый формат
+    if isinstance(sc_cfg.get("slots"), dict):
+        slots = sc_cfg["slots"].get(name) or sc_cfg["slots"].get(alias) or []
+
+    # Новый формат
+    if not slots:
+        for chan in (sc_cfg.get("channels") or []):
+            if chan.get("alias") == alias or chan.get("name") == name:
+                slots = chan.get("slots") or []
+                tz = chan.get("timezone", tz)
+                break
+
+    return tz, slots
+
+
 def main():
-    # 1) Создаём таблицы (если их ещё нет)
+    # 1) Создаём таблицы
     try:
         init_db()
     except Exception as e:
@@ -110,14 +131,17 @@ def main():
     # 2) Загружаем конфиги
     ch_cfg = load_yaml(CFG_CH)
     sc_cfg = load_yaml(CFG_SC)
+
     default_tz = sc_cfg.get("default_tz", "Europe/Moscow")
 
     # 3) Регистрируем задачи по расписанию
     for ch in ch_cfg["channels"]:
         if not ch.get("enabled", True):
             continue
-        slots = sc_cfg["slots"].get(ch["name"], [])
-        schedule_channel(ch, slots, default_tz)
+        alias = ch.get("alias") or ""
+        name = ch.get("name") or ""
+        tz, slots = _load_slots_for_channel(sc_cfg, alias, name)
+        schedule_channel(ch, slots, tz or default_tz)
 
     # 4) Основной цикл воркера
     start_msg = "[START] Worker running. Tick every second."
