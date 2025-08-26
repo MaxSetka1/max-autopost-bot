@@ -6,7 +6,7 @@ from typing import Dict, List, Any
 
 from app.retriever import search_book
 from app.gpt import _client
-from app.sheets import get_book_meta  # <-- берём meta из листа books
+from app.sheets import get_book_meta  # <-- НОВОЕ: автор из листа books
 
 MODEL_SUMMARY = os.getenv("OPENAI_MODEL_SUMMARY", "gpt-4o-mini")
 MODEL_POSTS   = os.getenv("OPENAI_MODEL_POSTS",   "gpt-4o-mini")
@@ -23,36 +23,27 @@ def _squash_blanks(s: str) -> str:
 def _normalize(s: str) -> str:
     return _squash_blanks(_clean_bold(s))
 
-def _book_info(s: Dict[str, Any], book_id: str, channel_name: str) -> tuple[str, str]:
-    """
-    Возвращает (title, author) в приоритете:
-    1) лист 'books' (если заполнено)
-    2) поля из summary.about
-    3) fallback по book_id
-    """
-    # 1) из таблицы books
-    meta = get_book_meta(book_id) if book_id else {"title":"", "author":""}
-    title = (meta.get("title") or "").strip()
-    author = (meta.get("author") or "").strip()
+def _book_title(summary: Dict[str, Any], book_id: str, channel_name: str) -> str:
+    """Название книги (без автора)."""
+    about = summary.get("about") or {}
+    t = (about.get("title") or "").strip()
+    if t:
+        return t
+    return book_id.replace("_", " ").strip().title() if book_id else channel_name
 
-    # 2) из summary.about
-    about = s.get("about") or {}
-    if not title:
-        t = (about.get("title") or "").strip()
-        if t:
-            title = t
-    if not author:
-        a = (about.get("author") or "").strip()
-        if a:
-            author = a
+def _book_author(summary: Dict[str, Any], book_id: str) -> str:
+    """Автор — сначала из конспекта, иначе из листа books."""
+    about = summary.get("about") or {}
+    author = (about.get("author") or "").strip()
+    if author:
+        return author
+    try:
+        meta = get_book_meta(book_id)  # читаем из Google Sheets (лист books)
+        return (meta.get("author") or "").strip()
+    except Exception:
+        return ""
 
-    # 3) fallback по id/каналу
-    if not title:
-        title = (book_id.replace("_", " ").strip().title() if book_id else channel_name)
-
-    return title, author
-
-# ---------- Сбор контекста из книги ----------
+# ---------- Контекст ----------
 def _collect_context(book_id: str) -> str:
     queries = [
         "основная идея книги в целом",
@@ -125,37 +116,38 @@ def _ensure_summary(book_id: str, channel_name: str) -> Dict[str, Any]:
 # ---------- Генерация постов ----------
 def _gen_with_prompt(fmt: str, summary: Dict[str, Any], *, book_id: str, channel_name: str) -> str:
     base = json.dumps(summary, ensure_ascii=False, indent=2)
-    title, author = _book_info(summary, book_id, channel_name)
+    title = _book_title(summary, book_id, channel_name)
+    author = _book_author(summary, book_id)  # <-- автор из конспекта или из листа books
 
     prompts = {
         "announce": (
-            "Сделай анонс книги для Telegram.\n"
-            "- Конкретно «зачем читать» (1 фраза),\n"
-            "- «кому особенно полезна»,\n"
-            "- крючок: 1 ярная цифра/пример из книги (без воды),\n"
-            "- 3–4 лаконичных буллета, 2–3 уместных эмодзи.\n"
-            "Не используй жирное (**). Не повторяй название книги — заголовок будет добавлен отдельно."
+            "Сделай анонс книги для Telegram:\n"
+            "- зачем читать (1 фраза),\n"
+            "- кому особенно полезна,\n"
+            "- крючок: яркая цифра/метафора.\n"
+            "Стиль: энергично, 3–4 буллета, 2–3 уместных эмодзи.\n"
+            "Не используй жирное (**). Не повторяй название книги в тексте (заголовок будет добавлен отдельно)."
         ),
         "insight": (
-            "Выдели 3–5 ключевых идей из книги. Каждая идея: 1–2 предложения + короткий пример/пояснение.\n"
+            "Выдели 3–5 ключевых идей из книги. Каждая идея — 1–2 предложения + короткий пример/пояснение.\n"
             "Стиль: лаконично, разговорно, 1–2 эмодзи суммарно. Без жирного. Заголовок мы добавим сами."
         ),
         "practice": (
-            "Выбери 1 практику и опиши пошагово: 4–6 конкретных шагов.\n"
-            "Добавь бытовой пример применения.\n"
+            "Выбери 1 практику и опиши пошагово: 3–6 конкретных шагов.\n"
+            "Обязательно добавь бытовой пример применения (например: ...).\n"
             "Стиль: простой язык, дружелюбно, 1–2 эмодзи. Без жирного. Заголовок мы добавим сами."
         ),
         "case": (
-            "Опиши 1 реальный кейс из книги в 3–5 предложениях: кто/когда/что сделали/результат.\n"
-            "По возможности упомяни названия/имена (если есть в конспекте). Добавь вывод: чему это учит. 0–1 эмодзи. Без жирного."
+            "Опиши 1 кейс из книги в 3–5 предложениях: кто/когда/что сделали/результат.\n"
+            "Добавь вывод: чему это учит. Можно 1 эмодзи. Без жирного. Заголовок мы добавим сами."
         ),
         "quote": (
             "Выбери 1 сильную цитату из книги (если есть). Приведи дословно в кавычках и добавь 1–2 предложения пояснения: как применить.\n"
-            "Без жирного, 0–1 эмодзи."
+            "Без жирного, 0–1 эмодзи. Заголовок мы добавим сами."
         ),
         "reflect": (
-            "Сформулируй 2 острых вопроса для рефлексии, чтобы читатель применил идею к себе. Делай вопросы конкретными и провокационными.\n"
-            "Коротко, дружелюбно, 0–1 эмодзи. Без жирного."
+            "Сформулируй 1–2 вопроса для рефлексии, чтобы читатель применил идею к себе.\n"
+            "Коротко, дружелюбно, 0–1 эмодзи. Без жирного. Заголовок мы добавим сами."
         ),
     }
     prompt = prompts.get(fmt, "Сделай краткую выжимку из книги без жирного и без повторения заголовка.")
@@ -188,7 +180,7 @@ def _gen_with_prompt(fmt: str, summary: Dict[str, Any], *, book_id: str, channel
         "reflect":  "#рефлексия",
     }
     map_label = {
-        "announce": "Книга дня",
+        "announce": "анонс",
         "insight":  "ключевые идеи",
         "practice": "практика",
         "case":     "кейс",
@@ -200,17 +192,17 @@ def _gen_with_prompt(fmt: str, summary: Dict[str, Any], *, book_id: str, channel
     label = map_label.get(fmt, fmt)
     tags  = map_tag.get(fmt, "#сводка")
 
-    # заголовок: для announce отдельный формат с автором
+    # В анонсе хотим «Книга дня — Название (Автор)», если автор известен
     if fmt == "announce":
-        by = f" — {author}" if author else ""
-        header = f"{emoji} {label} — {title}{by}"
+        title_full = f"{title} ({author})" if author else title
+        header = f"{emoji} Книга дня — {title_full}"
     else:
         header = f"{emoji} {title} — {label.capitalize()}"
 
     final = f"{header}\n\n{body}\n\n{tags}"
     return final.strip()
 
-# ---------- Публичные функции ----------
+# ---------- Публичные ----------
 def generate_from_book(channel_name: str, book_id: str, fmt: str) -> str:
     s = _ensure_summary(book_id, channel_name)
     return _gen_with_prompt(fmt.lower(), s, book_id=book_id, channel_name=channel_name)
