@@ -6,7 +6,7 @@ from typing import Dict, List, Any
 
 from app.retriever import search_book
 from app.gpt import _client
-from app.sheets import get_book_meta  # <-- НОВОЕ: автор из листа books
+from app.sheets import get_book_meta  # автор/метаданные из листа books
 
 MODEL_SUMMARY = os.getenv("OPENAI_MODEL_SUMMARY", "gpt-4o-mini")
 MODEL_POSTS   = os.getenv("OPENAI_MODEL_POSTS",   "gpt-4o-mini")
@@ -117,7 +117,7 @@ def _ensure_summary(book_id: str, channel_name: str) -> Dict[str, Any]:
 def _gen_with_prompt(fmt: str, summary: Dict[str, Any], *, book_id: str, channel_name: str) -> str:
     base = json.dumps(summary, ensure_ascii=False, indent=2)
     title = _book_title(summary, book_id, channel_name)
-    author = _book_author(summary, book_id)  # <-- автор из конспекта или из листа books
+    author = _book_author(summary, book_id)  # автор из конспекта или листа books
 
     prompts = {
         "announce": (
@@ -192,7 +192,7 @@ def _gen_with_prompt(fmt: str, summary: Dict[str, Any], *, book_id: str, channel
     label = map_label.get(fmt, fmt)
     tags  = map_tag.get(fmt, "#сводка")
 
-    # В анонсе хотим «Книга дня — Название (Автор)», если автор известен
+    # Для анонса: «Книга дня — Название (Автор)» если автор известен
     if fmt == "announce":
         title_full = f"{title} ({author})" if author else title
         header = f"{emoji} Книга дня — {title_full}"
@@ -214,3 +214,10 @@ def generate_by_format(fmt: str, items: List[dict]) -> str:
     if f == "practice":
         return "Практика недели: правило 2 минут. #практика"
     return "Материалы готовятся. #сводка"
+
+def get_author_for_book(book_id: str, channel_name: str) -> str:
+    """
+    Возвращает автора книги: сперва из конспекта, иначе из листа books.
+    """
+    summary = _ensure_summary(book_id, channel_name)
+    return _book_author(summary, book_id)
