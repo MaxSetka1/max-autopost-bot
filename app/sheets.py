@@ -13,6 +13,9 @@ HEADERS = [
 ]
 CONTROL_HEADERS = ["timestamp","action","date","channel","alias","status","note"]
 
+# Новый таб библиотеки:
+BOOKS_HEADERS = ["file_id","title","status","last_used_date"]  # status: new|used, last_used_date: YYYY-MM-DD
+
 
 # ---------- auth / open ----------
 def _client():
@@ -35,12 +38,11 @@ def _ws_drafts():
     try:
         ws = sh.worksheet("drafts")
     except gspread.WorksheetNotFound:
-        ws = sh.add_worksheet(title="drafts", rows=1000, cols=len(HEADERS) + 2)
+        ws = sh.add_worksheet(title="drafts", rows=2000, cols=len(HEADERS) + 2)
         ws.update("A1:K1", [HEADERS])
         ws.freeze(rows=1)
         return ws
 
-    # гарантируем правильные заголовки
     try:
         first = ws.get("A1:K1")[0]
     except Exception:
@@ -54,18 +56,16 @@ def _ws_drafts():
 def push_drafts(rows: list[dict]):
     """
     UPSERT в лист 'drafts'.
-    - Если есть совпадение по id -> обновляем строку.
+    - Если есть совпадение по id -> обновляем.
     - Иначе, если совпадает (date,time,channel,format) -> обновляем.
-    - Иначе -> добавляем новую строку.
+    - Иначе -> добавляем.
     """
     ws = _ws_drafts()
 
-    # читаем все записи как dict и строим индексы
-    existing = ws.get_all_records()  # без заголовка
+    existing = ws.get_all_records()
     by_id: dict[str, int] = {}
     by_key: dict[tuple[str,str,str,str], int] = {}
-
-    for i, rec in enumerate(existing, start=2):  # данные начинаются со 2-й строки
+    for i, rec in enumerate(existing, start=2):
         rid = str(rec.get("id") or "").strip()
         key = (
             str(rec.get("date") or "").strip(),
@@ -92,8 +92,8 @@ def push_drafts(rows: list[dict]):
             d.get("approved_at",""),
         ]
 
-    updates: list[tuple[str, list[list[str]]]] = []  # (A1range, [[vals]])
-    appends: list[list[str]] = []
+    updates = []
+    appends = []
 
     for r in rows:
         rid = str(r.get("id") or "").strip()
@@ -112,7 +112,6 @@ def push_drafts(rows: list[dict]):
         else:
             appends.append(vals)
 
-    # применяем батчем
     for a1, vals in updates:
         ws.update(a1, vals, value_input_option="RAW")
     if appends:
@@ -120,14 +119,9 @@ def push_drafts(rows: list[dict]):
 
 
 def pull_all() -> list[dict]:
-    """Считать все строки из 'drafts' как список словарей по заголовкам."""
     ws = _ws_drafts()
     rows = ws.get_all_records()
-    out = []
-    for r in rows:
-        d = {k: r.get(k, "") for k in HEADERS}
-        out.append(d)
-    return out
+    return [{k: r.get(k, "") for k in HEADERS} for r in rows]
 
 
 # ---------- control ----------
@@ -141,7 +135,6 @@ def _ws_control():
         ws.freeze(rows=1)
         return ws
 
-    # гарантируем правильные заголовки
     try:
         first = ws.get("A1:G1")[0]
     except Exception:
@@ -153,10 +146,6 @@ def _ws_control():
 
 
 def pull_control_requests() -> list[dict]:
-    """
-    Возвращает заявки со status='request'.
-    Каждой записи добавляет поле _row (номер строки для последующего update).
-    """
     ws = _ws_control()
     values = ws.get_all_values()
     if not values:
@@ -172,6 +161,52 @@ def pull_control_requests() -> list[dict]:
 
 
 def update_control_status(row: int, status: str, note: str = ""):
-    """Обновляет статус и примечание в указанной строке листа control."""
     ws = _ws_control()
     ws.update(f"F{row}:G{row}", [[status, note]])
+
+
+# ---------- books (новое) ----------
+def _ws_books():
+    sh = _open()
+    try:
+        ws = sh.worksheet("books")
+    except gspread.WorksheetNotFound:
+        ws = sh.add_worksheet(title="books", rows=2000, cols=len(BOOKS_HEADERS) + 2)
+        ws.update("A1:D1", [BOOKS_HEADERS])
+        ws.freeze(rows=1)
+        return ws
+
+    try:
+        first = ws.get("A1:D1")[0]
+    except Exception:
+        first = []
+    if first != BOOKS_HEADERS:
+        ws.update("A1:D1", [BOOKS_HEADERS])
+        ws.freeze(rows=1)
+    return ws
+
+
+def pull_books() -> list[dict]:
+    """Читаем все книги как list[dict] с ключами BOOKS_HEADERS."""
+    ws = _ws_books()
+    rows = ws.get_all_records()
+    out = []
+    for r in rows:
+        d = {k: (r.get(k, "") or "").strip() for k in BOOKS_HEADERS}
+        out.append(d)
+    return out
+
+
+def mark_book_used(file_id: str, date_iso: str):
+    """Ставит status=used и last_used_date=date_iso для указанного file_id."""
+    ws = _ws_books()
+    values = ws.get_all_values()
+    if not values:
+        return
+    header = values[0]
+    for idx, line in enumerate(values[1:], start=2):
+        rec = dict(zip(header, line + [""] * (len(header) - len(line))))
+        if (rec.get("file_id") or "").strip() == file_id:
+            # обновляем C(status) и D(last_used_date)
+            ws.update(f"C{idx}:D{idx}", [["used", date_iso]])
+            break
