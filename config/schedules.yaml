@@ -5,7 +5,7 @@ channels:
     alias: "@chitaidelai"    # совпадает с alias в channels.yaml
     slots:
       - format: "announce"
-        time: "12:10"
+        time: "08:59"
       - format: "insight"
         time: "11:59"
       - format: "practice"
