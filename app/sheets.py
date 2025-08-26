@@ -73,7 +73,7 @@ def push_drafts(rows: List[dict]):
 def pull_all() -> List[dict]:
     """Считать все строки drafts как список словарей (по заголовкам)."""
     ws = _ws_drafts()
-    rows = ws.get_all_records()  # по первой строке как по заголовкам
+    rows = ws.get_all_records()
     out: List[dict] = []
     for r in rows:
         d = {k: r.get(k, "") for k in DRAFTS_HEADERS}
@@ -103,7 +103,6 @@ def pull_control_requests() -> List[dict]:
     header = values[0]
     rows: List[dict] = []
     for idx, line in enumerate(values[1:], start=2):  # строки в Sheets начинаются с 1; плюс заголовок
-        # дополним строку пустыми значениями до длины заголовка
         if len(line) < len(header):
             line = line + [""]*(len(header)-len(line))
         rec = dict(zip(header, line))
@@ -115,7 +114,6 @@ def pull_control_requests() -> List[dict]:
 def update_control_status(row: int, status: str, note: str = ""):
     """Обновляет status и note в указанной строке листа control."""
     ws = _ws_control()
-    # найдём индексы колонок по заголовкам
     header = ws.row_values(1)
     idx = _find_col_indexes(header)
     col_status = idx.get("status", 5) + 1  # 1-based
@@ -151,14 +149,13 @@ def pull_books() -> List[dict]:
         if len(line) < len(header):
             line = line + [""]*(len(header)-len(line))
         rec = dict(zip(header, line))
-        # нормализуем ключи под BOOKS_HEADERS
         rows.append({k: rec.get(k, "") for k in BOOKS_HEADERS})
     return rows
 
 def update_book_status(file_id: str, status: str, note: str = ""):
     """
     Ищет книгу по file_id и обновляет status, updated_at и note.
-    Если книги нет — ничего не делает (без ошибки).
+    Если книги нет — тихо выходим.
     """
     ws = _ws_books()
     values = ws.get_all_values()
@@ -167,7 +164,6 @@ def update_book_status(file_id: str, status: str, note: str = ""):
     header = values[0]
     idx = _find_col_indexes(header)
 
-    # колонки (1-based)
     col_file   = idx.get("file_id", 0) + 1
     col_status = idx.get("status",  5) + 1
     col_upd    = idx.get("updated_at", 6) + 1
