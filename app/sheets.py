@@ -7,7 +7,8 @@ from google.oauth2.service_account import Credentials
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 SHEET_KEY = os.getenv("GSHEET_KEY")
 
-HEADERS = ["id","date","time","channel","format","book_id","text","status","edited_text","approved_by","approved_at"]
+# ⬇️ добавили author между book_id и text
+HEADERS = ["id","date","time","channel","format","book_id","author","text","status","edited_text","approved_by","approved_at"]
 CONTROL_HEADERS = ["timestamp","action","date","channel","alias","status","note"]
 
 def _client():
@@ -31,7 +32,7 @@ def _ws_drafts():
         ws = sh.worksheet("drafts")
     except gspread.WorksheetNotFound:
         ws = sh.add_worksheet(title="drafts", rows=1000, cols=len(HEADERS)+2)
-        ws.update("A1:K1", [HEADERS])
+        ws.update("A1:L1", [HEADERS])
     return ws
 
 def push_drafts(rows: list[dict]):
@@ -40,7 +41,7 @@ def push_drafts(rows: list[dict]):
     for r in rows:
         values.append([
             r.get("id",""), r.get("date",""), r.get("time",""), r.get("channel",""),
-            r.get("format",""), r.get("book_id",""), r.get("text",""),
+            r.get("format",""), r.get("book_id",""), r.get("author",""), r.get("text",""),
             r.get("status","new"), r.get("edited_text",""), r.get("approved_by",""), r.get("approved_at",""),
         ])
     if values:
@@ -66,9 +67,6 @@ def _ws_control():
     return ws
 
 def pull_control_requests() -> list[dict]:
-    """
-    Возвращает заявки со status='request'. Добавляет поле _row (номер строки для обновления статуса).
-    """
     ws = _ws_control()
     values = ws.get_all_values()
     if not values:
@@ -83,9 +81,6 @@ def pull_control_requests() -> list[dict]:
     return rows
 
 def update_control_status(row: int, status: str, note: str = ""):
-    """
-    Обновляет статус и примечание в указанной строке листа control.
-    """
     ws = _ws_control()
     ws.update(f"F{row}:G{row}", [[status, note]])
 
@@ -95,28 +90,21 @@ def _ws_books():
     try:
         ws = sh.worksheet("books")
     except gspread.WorksheetNotFound:
-        # создаём пустой, если нет — заголовки как в скрипте GAS
         ws = sh.add_worksheet(title="books", rows=1000, cols=8)
         ws.update("A1:H1", [["file_id","title","author","mimeType","url","status","updated_at","note"]])
     return ws
 
 def get_book_meta(book_id: str) -> dict:
-    """
-    Ищем книгу в листе books по file_id (наш book_id) и возвращаем {title, author, mimeType, url, status}.
-    Если не нашли — вернём пустые строки.
-    """
     if not (book_id or "").strip():
         return {"title":"","author":"","mimeType":"","url":"","status":""}
-
     ws = _ws_books()
     vals = ws.get_all_values()
     if not vals:
         return {"title":"","author":"","mimeType":"","url":"","status":""}
-
     header = vals[0]
     col_idx = {name:i for i,name in enumerate(header)}
     for row in vals[1:]:
-        if len(row) <= max(col_idx.values()):  # защита от коротких строк
+        if len(row) <= max(col_idx.values()):
             continue
         if row[col_idx.get("file_id",0)] == book_id:
             return {
