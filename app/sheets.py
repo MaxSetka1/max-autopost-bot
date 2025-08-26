@@ -1,27 +1,15 @@
 # app/sheets.py
 from __future__ import annotations
 import os, json, datetime as dt
-from typing import List, Dict, Any
-
 import gspread
 from google.oauth2.service_account import Credentials
 
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 SHEET_KEY = os.getenv("GSHEET_KEY")
 
-# --- Листы и заголовки ---
-HEADERS_DRAFTS = [
-    "id","date","time","channel","format","book_id","text",
-    "status","edited_text","approved_by","approved_at"
-]
+HEADERS = ["id","date","time","channel","format","book_id","text","status","edited_text","approved_by","approved_at"]
 CONTROL_HEADERS = ["timestamp","action","date","channel","alias","status","note"]
 
-BOOKS_HEADERS = [
-    "file_id", "title", "author", "mimeType", "url",
-    "status", "updated_at", "last_used_date"
-]
-
-# ---------- базовые клиенты ----------
 def _client():
     raw = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
     if not raw:
@@ -42,36 +30,28 @@ def _ws_drafts():
     try:
         ws = sh.worksheet("drafts")
     except gspread.WorksheetNotFound:
-        ws = sh.add_worksheet(title="drafts", rows=2000, cols=len(HEADERS_DRAFTS)+2)
-        ws.update("A1:K1", [HEADERS_DRAFTS])
+        ws = sh.add_worksheet(title="drafts", rows=1000, cols=len(HEADERS)+2)
+        ws.update("A1:K1", [HEADERS])
     return ws
 
-def push_drafts(rows: List[Dict[str, Any]]):
+def push_drafts(rows: list[dict]):
     ws = _ws_drafts()
     values = []
     for r in rows:
         values.append([
-            r.get("id",""),
-            r.get("date",""),
-            r.get("time",""),
-            r.get("channel",""),
-            r.get("format",""),
-            r.get("book_id",""),
-            r.get("text",""),
-            r.get("status","new"),
-            r.get("edited_text",""),
-            r.get("approved_by",""),
-            r.get("approved_at",""),
+            r.get("id",""), r.get("date",""), r.get("time",""), r.get("channel",""),
+            r.get("format",""), r.get("book_id",""), r.get("text",""),
+            r.get("status","new"), r.get("edited_text",""), r.get("approved_by",""), r.get("approved_at",""),
         ])
     if values:
         ws.append_rows(values, value_input_option="RAW")
 
-def pull_all() -> List[Dict[str, Any]]:
+def pull_all() -> list[dict]:
     ws = _ws_drafts()
     rows = ws.get_all_records()
     out = []
     for r in rows:
-        d = {k: r.get(k, "") for k in HEADERS_DRAFTS}
+        d = {k: r.get(k, "") for k in HEADERS}
         out.append(d)
     return out
 
@@ -85,9 +65,9 @@ def _ws_control():
         ws.update("A1:G1", [CONTROL_HEADERS])
     return ws
 
-def pull_control_requests() -> List[Dict[str, Any]]:
+def pull_control_requests() -> list[dict]:
     """
-    Возвращает заявки со status='request'. Добавляет поле _row (номер строки).
+    Возвращает заявки со status='request'. Добавляет поле _row (номер строки для обновления статуса).
     """
     ws = _ws_control()
     values = ws.get_all_values()
@@ -109,31 +89,41 @@ def update_control_status(row: int, status: str, note: str = ""):
     ws = _ws_control()
     ws.update(f"F{row}:G{row}", [[status, note]])
 
-# ---------- books ----------
+# ---------- books meta ----------
 def _ws_books():
     sh = _open()
     try:
         ws = sh.worksheet("books")
     except gspread.WorksheetNotFound:
-        ws = sh.add_worksheet(title="books", rows=2000, cols=len(BOOKS_HEADERS)+2)
-        ws.update(f"A1:{chr(ord('A')+len(BOOKS_HEADERS)-1)}1", [BOOKS_HEADERS])
-    # гарантируем заголовки (если создавался вручную)
-    first = ws.get_values("A1:Z1")
-    if not first or first[0][:len(BOOKS_HEADERS)] != BOOKS_HEADERS:
-        ws.update(f"A1:{chr(ord('A')+len(BOOKS_HEADERS)-1)}1", [BOOKS_HEADERS])
+        # создаём пустой, если нет — заголовки как в скрипте GAS
+        ws = sh.add_worksheet(title="books", rows=1000, cols=8)
+        ws.update("A1:H1", [["file_id","title","author","mimeType","url","status","updated_at","note"]])
     return ws
 
-def get_book_meta(book_id: str) -> Dict[str, str]:
+def get_book_meta(book_id: str) -> dict:
     """
-    Ищет книгу в листе 'books' по file_id и возвращает {title, author}.
-    Если что-то не найдено — вернём пустые строки.
+    Ищем книгу в листе books по file_id (наш book_id) и возвращаем {title, author, mimeType, url, status}.
+    Если не нашли — вернём пустые строки.
     """
+    if not (book_id or "").strip():
+        return {"title":"","author":"","mimeType":"","url":"","status":""}
+
     ws = _ws_books()
-    rows = ws.get_all_records()  # [{'file_id':..., 'title':..., 'author':...}, ...]
-    title, author = "", ""
-    for r in rows:
-        if (r.get("file_id") or "").strip() == (book_id or "").strip():
-            title = (r.get("title") or "").strip()
-            author = (r.get("author") or "").strip()
-            break
-    return {"title": title, "author": author}
+    vals = ws.get_all_values()
+    if not vals:
+        return {"title":"","author":"","mimeType":"","url":"","status":""}
+
+    header = vals[0]
+    col_idx = {name:i for i,name in enumerate(header)}
+    for row in vals[1:]:
+        if len(row) <= max(col_idx.values()):  # защита от коротких строк
+            continue
+        if row[col_idx.get("file_id",0)] == book_id:
+            return {
+                "title":   row[col_idx.get("title",1)] or "",
+                "author":  row[col_idx.get("author",2)] or "",
+                "mimeType":row[col_idx.get("mimeType",3)] or "",
+                "url":     row[col_idx.get("url",4)] or "",
+                "status":  row[col_idx.get("status",5)] or "",
+            }
+    return {"title":"","author":"","mimeType":"","url":"","status":""}
