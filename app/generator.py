@@ -14,24 +14,83 @@ MODEL_POSTS   = os.getenv("OPENAI_MODEL_POSTS",   "gpt-4o-mini")
 _SUMMARY_CACHE: Dict[str, Dict[str, Any]] = {}
 
 # ---------- Утилиты ----------
+
 def _clean_bold(s: str) -> str:
     return s.replace("**", "").strip()
 
 def _squash_blanks(s: str) -> str:
-    return re.sub(r"\n{3,}", "\n\n", s).strip()
+    s = re.sub(r"[ \t]+\n", "\n", s)          # хвостовые пробелы в концах строк
+    s = re.sub(r"\n{3,}", "\n\n", s).strip()  # лишние пустые строки
+    return s
 
 def _normalize(s: str) -> str:
-    return _squash_blanks(_clean_bold(s))
+    s = _clean_bold(s)
+    s = re.sub(r"!{3,}", "!!", s)  # умеряем «!!!»
+    return _squash_blanks(s)
 
 def _deslug(s: str) -> str:
     # Убираем .pdf/.docx, подчёркивания, мусорные суффиксы
-    s = re.sub(r"\.(pdf|docx?|rtf)$", "", s, flags=re.I)
-    s = s.replace("_", " ").replace("-", " ")
+    s = re.sub(r"\.(pdf|docx?|rtf|txt|epub)$", "", s, flags=re.I)
+    s = s.replace("_", " ")
+    # если всё латиницей и без пробелов — предполагаем slug → ставим пробелы по дефисам/капсам
+    s = re.sub(r"[-]+", " ", s)
+    s = re.sub(r"([a-z])([A-Z])", r"\1 \2", s)
     s = re.sub(r"\s{2,}", " ", s).strip()
     return s
 
+def _beautify_quotes(s: str) -> str:
+    # прямые кавычки -> «ёлочки» (осторожно, только вокруг коротких цитат в начале/в конце строки)
+    s = re.sub(r'(^|\s)"([^"\n]{3,200})"(\s|$)', r'\1«\2»\3', s)
+    return s
+
+_EMOJI_RE = re.compile(
+    r"([\U0001F1E6-\U0001F1FF]|"   # флаги
+    r"[\U0001F300-\U0001F5FF]|"    # символы и пиктограммы
+    r"[\U0001F600-\U0001F64F]|"    # смайлики
+    r"[\U0001F680-\U0001F6FF]|"    # транспорт и т.п.
+    r"[\U00002600-\U000026FF]|"    # разное
+    r"[\U00002700-\U000027BF])"    # разное
+)
+
+def _limit_emojis(body: str, max_count: int) -> str:
+    # оставим первые N эмодзи, остальные выпилим
+    out, cnt = [], 0
+    for ch in body:
+        if _EMOJI_RE.match(ch):
+            if cnt < max_count:
+                out.append(ch); cnt += 1
+            else:
+                # пропускаем лишние эмодзи
+                continue
+        else:
+            out.append(ch)
+    # не допускаем эмодзи в начале каждой строки подряд
+    s = "".join(out)
+    s = re.sub(r"(?m)^[\s]*(" + _EMOJI_RE.pattern + r")\s*", r"\1 ", s)
+    return s
+
+_STOP_START = (
+    r"^(Хотите|Готовы|Знаете ли вы|Представьте|В одной из глав|Автор рассказывает)",
+)
+
+def _declickbait(text: str) -> str:
+    # убираем кликбейтные заходы в начале абзацев
+    text = re.sub(r"(?m)" + _STOP_START + r".{0,80}\?\s*", "", text)
+    # выравниваем «в одной из глав/в 2020 году компания...»
+    text = re.sub(r"(?mi)^в одной из глав[^.\n]*\.\s*", "", text)
+    text = re.sub(r"(?mi)^в \d{4} году компания[^.\n]*\.\s*", "", text)
+    return text
+
+def _emoji_budget_for_length(s: str) -> int:
+    n = len(s)
+    if n < 400:  return 1
+    if n < 800:  return 2
+    return 3
+
+# ---------- Название / Автор ----------
+
 def _book_title(summary: Dict[str, Any], book_id: str, channel_name: str) -> str:
-    """Название книги с fallback на лист books и на очищенный id."""
+    """Название: сначала из конспекта, затем из листа books, иначе — очищенный id."""
     about = summary.get("about") or {}
     t = (about.get("title") or "").strip()
     if not t:
@@ -42,21 +101,26 @@ def _book_title(summary: Dict[str, Any], book_id: str, channel_name: str) -> str
             t = ""
     if not t:
         t = _deslug(book_id or channel_name)
+    # косметика
+    t = re.sub(r"\s+-\s+$", "", t)
+    t = _beautify_quotes(t)
     return t
 
 def _book_author(summary: Dict[str, Any], book_id: str) -> str:
-    """Автор — сначала из конспекта, затем из листа books."""
+    """Автор — сначала из конспекта, затем из листа books (ничего не выдумываем)."""
     about = summary.get("about") or {}
     author = (about.get("author") or "").strip()
     if author:
         return author
     try:
         meta = get_book_meta(book_id)
-        return (meta.get("author") or "").strip()
+        author = (meta.get("author") or "").strip()
     except Exception:
-        return ""
+        author = ""
+    return author
 
-# ---------- Контекст ----------
+# ---------- Сбор контекста ----------
+
 def _collect_context(book_id: str) -> str:
     queries = [
         "основная идея книги в целом",
@@ -71,8 +135,7 @@ def _collect_context(book_id: str) -> str:
         for ch in search_book(book_id, q, top_k=10):
             t = (ch.get("text") or "").strip()
             if t and t not in seen:
-                seen.add(t)
-                chunks.append(t)
+                seen.add(t); chunks.append(t)
             if len(chunks) >= 60:
                 break
         if len(chunks) >= 60:
@@ -81,6 +144,7 @@ def _collect_context(book_id: str) -> str:
     return joined[:40_000] if len(joined) > 40_000 else joined
 
 # ---------- Конспект ----------
+
 def _ask_json_summary(context: str, book_id: str, channel_name: str) -> Dict[str, Any]:
     system = "Ты редактор делового Telegram-канала. Сделай структурированный, прикладной конспект книги. Русский язык."
     user = f"""
@@ -127,6 +191,7 @@ def _ensure_summary(book_id: str, channel_name: str) -> Dict[str, Any]:
     return summary
 
 # ---------- Генерация постов ----------
+
 def _gen_with_prompt(fmt: str, summary: Dict[str, Any], *, book_id: str, channel_name: str) -> str:
     base = json.dumps(summary, ensure_ascii=False, indent=2)
     title = _book_title(summary, book_id, channel_name)
@@ -152,12 +217,12 @@ def _gen_with_prompt(fmt: str, summary: Dict[str, Any], *, book_id: str, channel
             "Стиль: дружелюбный, без воды, 1–2 эмодзи. Без жирного. Заголовок добавим сами."
         ),
         "case": (
-            "Опиши 1 кейс: контекст → действие → результат → вывод (3–5 предложений).\n"
+            "Опиши 1 кейс: контекст → действие → результат (с цифрой, если есть) → вывод (3–5 предложений).\n"
             "Без общих штампов, 0–1 эмодзи. Без жирного. Заголовок добавим сами."
         ),
         "quote": (
-            "Дай 1 сильную цитату дословно в кавычках + 1–2 предложения как применить.\n"
-            "Без жирного, 0–1 эмодзи. Заголовок добавим сами."
+            "Дай 1 сильную цитату дословно в кавычках + 1–2 предложения «как применить».\n"
+            "Не придумывай автора. Если в конспекте есть автор — он будет указан отдельно. Без жирного, 0–1 эмодзи."
         ),
         "reflect": (
             "Сформулируй 1–2 вопроса для рефлексии так, чтобы читатель примерил идею на себя.\n"
@@ -174,7 +239,14 @@ def _gen_with_prompt(fmt: str, summary: Dict[str, Any], *, book_id: str, channel
         ],
         temperature=0.7,
     )
-    body = _normalize(resp.choices[0].message.content or "")
+    body = resp.choices[0].message.content or ""
+    body = _normalize(body)
+    body = _declickbait(body)
+    body = _beautify_quotes(body)
+
+    # Лимит эмодзи по длине
+    max_emoji = _emoji_budget_for_length(body)
+    body = _limit_emojis(body, max_emoji)
 
     # Заголовки/хэштеги
     map_emoji = {
@@ -213,10 +285,17 @@ def _gen_with_prompt(fmt: str, summary: Dict[str, Any], *, book_id: str, channel
     else:
         header = f"{emoji} {title} — {label.capitalize()}"
 
+    # Для цитаты — аккуратная атрибуция автора, если он известен и не встречается в тексте
+    if fmt == "quote" and author:
+        # если в тексте уже есть длинное тире + что-то похожее на имя — оставляем как есть
+        if not re.search(r"—\s*[A-Za-zА-Яа-яЁё][^\n]{1,60}$", body, flags=re.M):
+            body = re.sub(r'(?s)^(«.*?»|"[^"]{3,200}")', r"\1 — " + author, body)
+
     final = f"{header}\n\n{body}\n\n{tags}"
     return final.strip()
 
 # ---------- Публичные ----------
+
 def generate_from_book(channel_name: str, book_id: str, fmt: str) -> str:
     s = _ensure_summary(book_id, channel_name)
     return _gen_with_prompt(fmt.lower(), s, book_id=book_id, channel_name=channel_name)
