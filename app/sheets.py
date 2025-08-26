@@ -71,7 +71,7 @@ def _ws_control():
 
 def pull_control_requests() -> list[dict]:
     """
-    Возвращает заявки со status='request'. Добавляет поле _row (номер строки для обновления статуса).
+    Возвращает заявки со status='request'. Добавляет поле _row (номер строки).
     """
     ws = _ws_control()
     values = ws.get_all_values()
@@ -87,9 +87,6 @@ def pull_control_requests() -> list[dict]:
     return rows
 
 def update_control_status(row: int, status: str, note: str = ""):
-    """
-    Обновляет статус и примечание в указанной строке листа control.
-    """
     ws = _ws_control()
     ws.update(f"F{row}:G{row}", [[status, note]])
 
@@ -104,9 +101,6 @@ def _ws_books():
     return ws
 
 def pull_books() -> list[dict]:
-    """
-    Возвращает все строки из листа books как список dict.
-    """
     ws = _ws_books()
     rows = ws.get_all_records()
     out = []
@@ -116,34 +110,27 @@ def pull_books() -> list[dict]:
     return out
 
 def _find_book_row_by_id(file_id: str) -> int | None:
-    """
-    Ищет строку (1-based) по file_id. Возвращает номер строки или None.
-    """
     ws = _ws_books()
     col = ws.col_values(1)  # A: file_id
-    for idx, val in enumerate(col[1:], start=2):  # пропускаем заголовок
+    for idx, val in enumerate(col[1:], start=2):
         if (val or "").strip() == (file_id or "").strip():
             return idx
     return None
 
 def update_book_status(file_id: str, status: str, note: str = ""):
     """
-    Обновляет статус книги и служебные поля:
-    F: status, G: updated_at (UTC date), H: note.
+    F: status, G: updated_at (UTC), H: note
     """
     ws = _ws_books()
     row = _find_book_row_by_id(file_id)
     if not row:
-        # если записи нет — не падаем, просто выходим
+        print(f"[BOOKS] file_id not found: {file_id}")
         return
-    today = dt.datetime.utcnow().strftime("%Y-%m-%d %H:%M")
-    ws.update(f"F{row}:H{row}", [[status, today, note]])
+    updated = dt.datetime.utcnow().strftime("%Y-%m-%d %H:%M")
+    # ВНИМАНИЕ: только строки, никаких tuple
+    ws.update(f"F{row}:H{row}", [[str(status), str(updated), str(note)]])
 
 def get_book_meta(file_id: str) -> dict:
-    """
-    Возвращает метаданные книги из листа books по file_id.
-    Если не найдено — пустые поля.
-    """
     ws = _ws_books()
     values = ws.get_all_values()
     if not values:
@@ -152,7 +139,6 @@ def get_book_meta(file_id: str) -> dict:
     for line in values[1:]:
         if (line[0] or "").strip() == (file_id or "").strip():
             rec = dict(zip(header, line + [""] * (len(header) - len(line))))
-            # возвращаем только интересующие поля
             return {
                 "file_id": rec.get("file_id",""),
                 "title": rec.get("title",""),
