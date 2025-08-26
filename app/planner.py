@@ -2,7 +2,7 @@
 from __future__ import annotations
 import traceback
 import datetime as dt
-from typing import List, Dict
+from typing import List, Dict, Tuple
 from pathlib import Path
 import yaml
 
@@ -19,10 +19,10 @@ SCH_FILE = ROOT / "config" / "schedules.yaml"
 def _load_yaml(p: Path) -> dict:
     return yaml.safe_load(p.read_text(encoding="utf-8")) or {}
 
-def _find_channel_slots(alias: str, name: str) -> tuple[str, List[Dict]]:
+def _find_channel_slots(alias: str, name: str) -> Tuple[str, List[Dict]]:
     sc = _load_yaml(SCH_FILE)
     tz = sc.get("timezone", "UTC")
-    slots = []
+    slots: List[Dict] = []
     for ch in (sc.get("channels") or []):
         if ch.get("alias") == alias or ch.get("name") == name:
             tz = ch.get("timezone", tz)
@@ -31,8 +31,8 @@ def _find_channel_slots(alias: str, name: str) -> tuple[str, List[Dict]]:
     return tz, slots
 
 def _pick_new_book() -> dict | None:
-    books = pull_books()
-    for b in books:
+    # Берём первую книгу со статусом new (без выдумок)
+    for b in pull_books():
         if (b.get("status") or "").strip().lower() == "new":
             return b
     return None
@@ -49,11 +49,22 @@ def generate_day(channel_name: str, channel_alias: str, date_iso: str) -> int:
         print(f"[GEN] no new books for {channel_name}")
         return 0
 
-    book_id = book.get("file_id") or ""
+    book_id = (book.get("file_id") or "").strip()
     book_title = (book.get("title") or book_id or "").strip()
     print(f"[GEN] picked book: id={book_id} title={book_title}")
 
-    created = []
+    # 1) помечаем книгу как «в работе»
+    try:
+        update_book_status(str(book_id), "in_progress", note=f"started for {date_iso}")
+        print(f"[BOOKS] status updated: {book_id} -> in_progress (started for {date_iso})")
+    except Exception as e:
+        print(f"[BOOKS WARN] can't set in_progress: {e}")
+        print(traceback.format_exc())
+
+    created_rows: List[Dict] = []
+    created_count = 0
+
+    # 2) генерим все слоты
     for s in slots:
         fmt = s["format"]
         hhmm = s["time"]
@@ -63,7 +74,8 @@ def generate_day(channel_name: str, channel_alias: str, date_iso: str) -> int:
                 channel=channel_name, fmt=fmt, book_id=book_id,
                 text=text, d=date_iso, t=hhmm
             )
-            created.append({
+            created_count += 1
+            created_rows.append({
                 "id": draft_id,
                 "date": date_iso,
                 "time": hhmm,
@@ -81,24 +93,33 @@ def generate_day(channel_name: str, channel_alias: str, date_iso: str) -> int:
             print(f"[GEN ERR] slot {fmt} {hhmm}: {e}")
             print(traceback.format_exc())
 
-    if created:
+    # 3) пушим в шит, если есть что пушить
+    pushed_ok = False
+    if created_rows:
         try:
-            push_drafts(created)
-            print(f"[SHEETS] pushed {len(created)} rows for book {book_title}")
+            push_drafts(created_rows)
+            pushed_ok = True
+            print(f"[SHEETS] pushed {len(created_rows)} rows for book {book_title}")
         except Exception as e:
+            pushed_ok = False
             print(f"[SHEETS ERR] push_drafts: {e}")
             print(traceback.format_exc())
 
-    # Обновляем статус книги безопасно
+    # 4) финализируем статус книги
     try:
-        note = f"used for {date_iso}"
-        update_book_status(str(book_id), "used", note=note)
-        print(f"[BOOKS] status updated: {book_id} -> used ({note})")
+        if created_count > 0 and pushed_ok:
+            note = f"used for {date_iso} ({created_count} drafts)"
+            update_book_status(str(book_id), "used", note=note)
+            print(f"[BOOKS] status updated: {book_id} -> used ({note})")
+        else:
+            note = f"rollback: 0 drafts for {date_iso}" if created_count == 0 else f"rollback: push failed for {date_iso}"
+            update_book_status(str(book_id), "new", note=note)
+            print(f"[BOOKS] status updated: {book_id} -> new ({note})")
     except Exception as e:
-        print(f"[BOOKS ERR] update_book_status: {e}")
+        print(f"[BOOKS ERR] update_book_status(final): {e}")
         print(traceback.format_exc())
 
-    return len(created)
+    return created_count
 
 def poll_control():
     reqs = pull_control_requests()
