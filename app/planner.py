@@ -6,7 +6,7 @@ from typing import List, Dict
 from pathlib import Path
 import yaml
 
-from app.generator import generate_from_book
+from app.generator import generate_from_book, get_author_for_book
 from app.db import upsert_draft
 from app.sheets import push_drafts, pull_control_requests, update_control_status
 
@@ -35,7 +35,7 @@ def _pick_new_book() -> dict | None:
     """
     Выбираем первую книгу со статусом new из листа books.
     """
-    from app.sheets import pull_books, update_book_status
+    from app.sheets import pull_books
     books = pull_books()
     for b in books:
         if (b.get("status") or "").lower() == "new":
@@ -61,6 +61,13 @@ def generate_day(channel_name: str, channel_alias: str, date_iso: str) -> int:
     book_id = book["file_id"]
     book_title = book.get("title") or book_id
 
+    # автор для всех шести постов одной книги
+    try:
+        author = (get_author_for_book(book_id, channel_name) or "").strip()
+    except Exception as e:
+        print(f"[AUTHOR WARN] {book_id}: {e}")
+        author = ""
+
     created = []
     for s in slots:
         fmt = s["format"]
@@ -77,6 +84,7 @@ def generate_day(channel_name: str, channel_alias: str, date_iso: str) -> int:
             "channel": channel_name,
             "format": fmt,
             "book_id": book_id,
+            "author": author,        # ⬅️ пишем автора в лист drafts
             "text": text,
             "status": "new",
             "edited_text": "",
