@@ -24,27 +24,27 @@ def _normalize(s: str) -> str:
     return _squash_blanks(_clean_bold(s))
 
 def _deslug(s: str) -> str:
-    # Убираем .pdf/.docx, подчёркивания/дефисы, лишние пробелы
-    s = re.sub(r"\.(pdf|docx?|rtf|epub)$", "", s, flags=re.I)
+    # Убираем расширения, подчёркивания/дефисы, лишние пробелы
+    s = re.sub(r"\.(pdf|docx?|rtf|epub|txt)$", "", s, flags=re.I)
     s = s.replace("_", " ").replace("-", " ")
     s = re.sub(r"\s{2,}", " ", s).strip()
     return s
 
-# Анти-кликбейт: удаляем стартовые «крючки» вида «Знаете ли вы…?», «А что если…?» и т.п.
-# ВАЖНО: это строка, а не tuple — чтобы не было TypeError при конкатенации.
+# Анти-кликбейт (фикс: это строка, не tuple)
 _STOP_START = r"(?:знаете ли вы|вы знали|а знаете|а что если|что если|секрет в том|многие не знают|представьте|представь)"
 
 def _declickbait(text: str) -> str:
     if not text:
         return text
-    # Удаляем такие «вопросные» подводки в начале строк
     text = re.sub(r"(?im)^\s*" + _STOP_START + r".{0,120}\?\s*\n?", "", text)
-    # Чистим повторяющиеся фразы «эта книга…», «в одной из глав…»
     text = re.sub(r"(?im)в\s+одной\s+из\s+глав.*?(?:\.|\n)", "", text)
     text = re.sub(r"(?im)эта\s+книга\s+покажет.*?(?:\.|\n)", "", text)
+    # Доп. штампики
+    text = re.sub(r"(?im)погрузитесь\s+в\s+мир.*?(?:\.|\n)", "", text)
+    text = re.sub(r"(?im)откройте\s+новые\s+горизонты.*?(?:\.|\n)", "", text)
     return _squash_blanks(text)
 
-# Ограничение эмодзи (оставляем максимум N штук, остальные выкидываем)
+# Ограничение эмодзи
 _EMOJI_RE = re.compile(
     r"[\U0001F1E6-\U0001F1FF]|"   # флаги
     r"[\U0001F300-\U0001F5FF]|"   # символы/пиктограммы
@@ -63,39 +63,100 @@ def _limit_emojis(text: str, max_count: int) -> str:
     for ch in text:
         if _EMOJI_RE.fullmatch(ch):
             if used < max_count:
-                out.append(ch)
-                used += 1
-            # иначе пропускаем эмодзи
+                out.append(ch); used += 1
         else:
             out.append(ch)
     return "".join(out)
 
+# ---------- Нормализация меты из листа ----------
+def _as_meta_dict(meta_like) -> Dict[str, Any]:
+    # get_book_meta может вернуть dict ИЛИ (dict, row)
+    if isinstance(meta_like, tuple) and meta_like:
+        meta_like = meta_like[0]
+    return meta_like or {}
+
+# ---------- Хелперы для популярных книг (fallback на русский) ----------
+def _norm_key(s: str) -> str:
+    s = (s or "").lower()
+    s = re.sub(r"\.(pdf|docx?|rtf|epub|txt)$", "", s)
+    s = s.replace(" ", "").replace("_", "").replace("-", "")
+    s = s.replace("ё", "е")
+    return s
+
+# Словарь названий
+_KNOWN_TITLES: Dict[str, str] = {
+    _norm_key("atomnye privychki"): "Атомные привычки",
+    _norm_key("atomnye-privychki"): "Атомные привычки",
+    _norm_key("atomic habits"): "Атомные привычки",
+    _norm_key("ot-nulya-k-edinice"): "От нуля к единице",
+    _norm_key("from zero to one"): "От нуля к единице",
+    _norm_key("7 navykov vysoo-effektivnyh lyudei"): "7 навыков высокоэффективных людей",
+    _norm_key("7 navykov"): "7 навыков высокоэффективных людей",
+    _norm_key("7 habits of highly effective people"): "7 навыков высокоэффективных людей",
+}
+
+# Словарь авторов
+_KNOWN_AUTHORS: Dict[str, str] = {
+    _norm_key("Атомные привычки"): "Джеймс Клир",
+    _norm_key("Atomic Habits"): "Джеймс Клир",
+    _norm_key("От нуля к единице"): "Питер Тиль",
+    _norm_key("From Zero to One"): "Питер Тиль",
+    _norm_key("7 навыков высокоэффективных людей"): "Стивен Кови",
+    _norm_key("7 Habits of Highly Effective People"): "Стивен Кови",
+}
+
+def _guess_title_from_slug(book_id: str, channel_name: str) -> str:
+    key = _norm_key(book_id or channel_name)
+    if key in _KNOWN_TITLES:
+        return _KNOWN_TITLES[key]
+    return _deslug(book_id or channel_name)
+
+def _guess_author_by_title(title: str) -> str:
+    key = _norm_key(title)
+    return _KNOWN_AUTHORS.get(key, "")
+
 # ---------- Метаданные книги ----------
 def _book_title(summary: Dict[str, Any], book_id: str, channel_name: str) -> str:
-    """Название книги: JSON-конспект → лист books → очищенный id/alias."""
-    about = summary.get("about") or {}
-    t = (about.get("title") or "").strip()
+    """Название книги: лист books → JSON-конспект → словарь популярных → очищенный id/alias."""
+    t = ""
+    # 1) Лист books (надёжнее всего)
+    try:
+        meta = _as_meta_dict(get_book_meta(book_id))
+        t = (meta.get("title") or "").strip()
+    except Exception:
+        t = ""
+    # 2) Из конспекта
     if not t:
-        try:
-            meta = get_book_meta(book_id)
-            t = (meta.get("title") or "").strip()
-        except Exception:
-            t = ""
+        about = summary.get("about") or {}
+        t = (about.get("title") or "").strip()
+    # 3) Из словаря популярных по slug/id
     if not t:
-        t = _deslug(book_id or channel_name)
+        t = _guess_title_from_slug(book_id, channel_name)
     return t
 
 def _book_author(summary: Dict[str, Any], book_id: str) -> str:
-    """Автор — сначала из конспекта, затем из листа books."""
-    about = summary.get("about") or {}
-    author = (about.get("author") or "").strip()
-    if author:
-        return author
+    """Автор — лист books → JSON-конспект → по узнаваемому названию."""
+    a = ""
+    # 1) Лист books
     try:
-        meta = get_book_meta(book_id)
-        return (meta.get("author") or "").strip()
+        meta = _as_meta_dict(get_book_meta(book_id))
+        a = (meta.get("author") or "").strip()
     except Exception:
-        return ""
+        a = ""
+    # 2) Конспект
+    if not a:
+        about = summary.get("about") or {}
+        a = (about.get("author") or "").strip()
+    # 3) По узнаваемому названию
+    if not a:
+        # Пытаемся вывести автора из знаковых книг
+        # Берём заголовок, уже вычисленный из всех приоритетов
+        # (чтобы не плодить вызовы sheets)
+        title_guess = (summary.get("about") or {}).get("title") or ""
+        if not title_guess:
+            title_guess = _guess_title_from_slug(book_id, "")
+        a = _guess_author_by_title(title_guess) or ""
+    return a
 
 # ---------- Контекст для суммаризации ----------
 def _collect_context(book_id: str) -> str:
@@ -112,8 +173,7 @@ def _collect_context(book_id: str) -> str:
         for ch in search_book(book_id, q, top_k=10):
             t = (ch.get("text") or "").strip()
             if t and t not in seen:
-                seen.add(t)
-                chunks.append(t)
+                seen.add(t); chunks.append(t)
             if len(chunks) >= 60:
                 break
         if len(chunks) >= 60:
@@ -277,6 +337,6 @@ def generate_by_format(fmt: str, items: List[dict]) -> str:
     return "Материалы готовятся. #сводка"
 
 def get_author_for_book(book_id: str, channel_name: str) -> str:
-    """Возвращает автора книги: сперва из конспекта, затем из листа books."""
+    """Возвращает автора книги: сперва лист books, затем конспект, затем словарь известных названий."""
     summary = _ensure_summary(book_id, channel_name)
     return _book_author(summary, book_id)
