@@ -23,22 +23,35 @@ def _squash_blanks(s: str) -> str:
 def _normalize(s: str) -> str:
     return _squash_blanks(_clean_bold(s))
 
+def _deslug(s: str) -> str:
+    # Убираем .pdf/.docx, подчёркивания, мусорные суффиксы
+    s = re.sub(r"\.(pdf|docx?|rtf)$", "", s, flags=re.I)
+    s = s.replace("_", " ").replace("-", " ")
+    s = re.sub(r"\s{2,}", " ", s).strip()
+    return s
+
 def _book_title(summary: Dict[str, Any], book_id: str, channel_name: str) -> str:
-    """Название книги (без автора)."""
+    """Название книги с fallback на лист books и на очищенный id."""
     about = summary.get("about") or {}
     t = (about.get("title") or "").strip()
-    if t:
-        return t
-    return book_id.replace("_", " ").strip().title() if book_id else channel_name
+    if not t:
+        try:
+            meta = get_book_meta(book_id)
+            t = (meta.get("title") or "").strip()
+        except Exception:
+            t = ""
+    if not t:
+        t = _deslug(book_id or channel_name)
+    return t
 
 def _book_author(summary: Dict[str, Any], book_id: str) -> str:
-    """Автор — сначала из конспекта, иначе из листа books."""
+    """Автор — сначала из конспекта, затем из листа books."""
     about = summary.get("about") or {}
     author = (about.get("author") or "").strip()
     if author:
         return author
     try:
-        meta = get_book_meta(book_id)  # читаем из Google Sheets (лист books)
+        meta = get_book_meta(book_id)
         return (meta.get("author") or "").strip()
     except Exception:
         return ""
@@ -82,7 +95,7 @@ def _ask_json_summary(context: str, book_id: str, channel_name: str) -> Dict[str
   "reflection": ["..."]
 }}
 
-Не выдумывай факты — если чего-то нет, оставь пустым.
+Точность важнее фантазии: если факта нет — оставь поле пустым.
 Возвращай ТОЛЬКО валидный JSON без пояснений.
 
 Фрагменты:
@@ -117,40 +130,41 @@ def _ensure_summary(book_id: str, channel_name: str) -> Dict[str, Any]:
 def _gen_with_prompt(fmt: str, summary: Dict[str, Any], *, book_id: str, channel_name: str) -> str:
     base = json.dumps(summary, ensure_ascii=False, indent=2)
     title = _book_title(summary, book_id, channel_name)
-    author = _book_author(summary, book_id)  # автор из конспекта или листа books
+    author = _book_author(summary, book_id)
 
     prompts = {
         "announce": (
-            "Сделай анонс книги для Telegram:\n"
-            "- зачем читать (1 фраза),\n"
-            "- кому особенно полезна,\n"
-            "- крючок: яркая цифра/метафора.\n"
-            "Стиль: энергично, 3–4 буллета, 2–3 уместных эмодзи.\n"
-            "Не используй жирное (**). Не повторяй название книги в тексте (заголовок будет добавлен отдельно)."
+            "Сделай анонс книги для Telegram.\n"
+            "Структура:\n"
+            "- 1 строка: зачем читать (без слов «эта книга покажет»),\n"
+            "- 2–3 буллета: кому полезно/какой выигрыш,\n"
+            "- 1 крючок: яркая цифра/факт/метафора.\n"
+            "Стиль: энергично, конкретно, без воды, 2–3 уместных эмодзи.\n"
+            "Избегай общих фраз вроде «в одной из глав автор рассказывает». Не повторяй название — заголовок добавим отдельно. Без жирного (**)."
         ),
         "insight": (
-            "Выдели 3–5 ключевых идей из книги. Каждая идея — 1–2 предложения + короткий пример/пояснение.\n"
-            "Стиль: лаконично, разговорно, 1–2 эмодзи суммарно. Без жирного. Заголовок мы добавим сами."
+            "Выдели 3–5 конкретных идей из книги. Каждая — 1–2 предложения + короткий прикладной пример.\n"
+            "Стиль: лаконично, разговорно, 1–2 эмодзи суммарно. Без жирного. Заголовок добавим сами."
         ),
         "practice": (
-            "Выбери 1 практику и опиши пошагово: 3–6 конкретных шагов.\n"
-            "Обязательно добавь бытовой пример применения (например: ...).\n"
-            "Стиль: простой язык, дружелюбно, 1–2 эмодзи. Без жирного. Заголовок мы добавим сами."
+            "Возьми 1 прикладную практику. Дай название и 3–6 чётких шагов.\n"
+            "Добавь бытовой пример (одним абзацем).\n"
+            "Стиль: дружелюбный, без воды, 1–2 эмодзи. Без жирного. Заголовок добавим сами."
         ),
         "case": (
-            "Опиши 1 кейс из книги в 3–5 предложениях: кто/когда/что сделали/результат.\n"
-            "Добавь вывод: чему это учит. Можно 1 эмодзи. Без жирного. Заголовок мы добавим сами."
+            "Опиши 1 кейс: контекст → действие → результат → вывод (3–5 предложений).\n"
+            "Без общих штампов, 0–1 эмодзи. Без жирного. Заголовок добавим сами."
         ),
         "quote": (
-            "Выбери 1 сильную цитату из книги (если есть). Приведи дословно в кавычках и добавь 1–2 предложения пояснения: как применить.\n"
-            "Без жирного, 0–1 эмодзи. Заголовок мы добавим сами."
+            "Дай 1 сильную цитату дословно в кавычках + 1–2 предложения как применить.\n"
+            "Без жирного, 0–1 эмодзи. Заголовок добавим сами."
         ),
         "reflect": (
-            "Сформулируй 1–2 вопроса для рефлексии, чтобы читатель применил идею к себе.\n"
-            "Коротко, дружелюбно, 0–1 эмодзи. Без жирного. Заголовок мы добавим сами."
+            "Сформулируй 1–2 вопроса для рефлексии так, чтобы читатель примерил идею на себя.\n"
+            "Коротко, 0–1 эмодзи. Без жирного. Заголовок добавим сами."
         ),
     }
-    prompt = prompts.get(fmt, "Сделай краткую выжимку из книги без жирного и без повторения заголовка.")
+    prompt = prompts.get(fmt, "Сделай краткую выжимку по книге: конкретно, без жирного и без повторения заголовка.")
 
     resp = _client().chat.completions.create(
         model=MODEL_POSTS,
@@ -192,7 +206,7 @@ def _gen_with_prompt(fmt: str, summary: Dict[str, Any], *, book_id: str, channel
     label = map_label.get(fmt, fmt)
     tags  = map_tag.get(fmt, "#сводка")
 
-    # Для анонса: «Книга дня — Название (Автор)» если автор известен
+    # Заголовок
     if fmt == "announce":
         title_full = f"{title} ({author})" if author else title
         header = f"{emoji} Книга дня — {title_full}"
@@ -216,8 +230,6 @@ def generate_by_format(fmt: str, items: List[dict]) -> str:
     return "Материалы готовятся. #сводка"
 
 def get_author_for_book(book_id: str, channel_name: str) -> str:
-    """
-    Возвращает автора книги: сперва из конспекта, иначе из листа books.
-    """
+    """Возвращает автора книги: сперва из конспекта, затем из листа books."""
     summary = _ensure_summary(book_id, channel_name)
     return _book_author(summary, book_id)
